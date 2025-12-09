@@ -1,0 +1,21 @@
+{
+  "name": "car-parts-scraper",
+  "version": "1.0.0",
+  "description": "Apify actor for multi-brand OEM parts catalog scraping.",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "apify": "^3.0.0",
+    "cheerio": "^1.0.0-rc.12",
+    "crawlee": "^3.8.0",
+    "playwright": "^1.40.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^18.18.0",
+    "typescript": "^5.3.3"
+  }
+}

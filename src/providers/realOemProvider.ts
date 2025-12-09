@@ -71,6 +71,17 @@ export class RealOemProvider implements Provider {
       },
     ]);
 
-    return results;
+    const fake: OemCandidate = {
+      oem: normalizeOem('12120037244'),
+      rawOem: '12 12 0 037 244',
+      description: 'FAKE TEST SPARK PLUG',
+      groupPath: ['Engine', 'Ignition'],
+      provider: this.id,
+      url: 'https://www.realoem.com/',
+      confidence: 0.95,
+      meta: { test: true },
+    };
+
+    return [fake, ...results];
   }
 }

@@ -55,31 +55,106 @@ export class SevenZapProvider implements Provider {
 
             // TODO: Navigate to part group using input.partGroupPath or search for input.partQuery.
 
-            // TODO: Replace this placeholder extraction with real selectors for 7zap parts table rows.
-            const extractedRows: Array<{
-              oem: string;
-              description?: string;
-              groupPath?: string[];
-              url?: string;
-              rawOem?: string;
-            }> = [];
+            type ExtractedRow = {
+              rawOem: string;
+              description: string | null;
+              quantity: number | null;
+            };
+
+            const tables = page.locator('table');
+            const tableCount = await tables.count();
+            let extractedRows: ExtractedRow[] = [];
+
+            for (let i = 0; i < tableCount; i++) {
+              const tableLocator = tables.nth(i);
+              const rows = await tableLocator.evaluateAll<ExtractedRow[]>((tableElements) => {
+                const oemPattern = /[0-9A-Z- ]{5,}/i;
+                const digitPattern = /\d/;
+
+                const pickOem = (cells: string[]): string | null => {
+                  for (const cell of cells) {
+                    const text = cell.trim();
+                    if (text.length < 5) continue;
+                    if (!digitPattern.test(text)) continue;
+                    if (oemPattern.test(text)) return text;
+                  }
+                  return null;
+                };
+
+                const pickDescription = (cells: string[], skipValue: string | null): string | null => {
+                  for (const cell of cells) {
+                    const text = cell.trim();
+                    if (!text) continue;
+                    if (skipValue && text === skipValue) continue;
+                    return text;
+                  }
+                  return null;
+                };
+
+                const pickQuantity = (cells: string[]): number | null => {
+                  for (const cell of cells) {
+                    const text = cell.trim();
+                    if (/^\d+$/.test(text)) return Number(text);
+                  }
+                  return null;
+                };
+
+                for (const table of tableElements) {
+                  const rows: ExtractedRow[] = [];
+                  const trEls = Array.from(table.querySelectorAll('tr'));
+                  for (const tr of trEls) {
+                    const cells = Array.from(tr.querySelectorAll('td')).map((td) => td.textContent || '').map((t) => t.trim()).filter(Boolean);
+                    if (!cells.length) continue;
+
+                    const rawOem = pickOem(cells);
+                    if (!rawOem) continue;
+
+                    const description = pickDescription(cells.filter((c) => c !== rawOem), rawOem);
+                    const quantity = pickQuantity(cells);
+
+                    rows.push({
+                      rawOem,
+                      description: description || null,
+                      quantity: Number.isFinite(quantity) ? (quantity as number) : null,
+                    });
+                  }
+
+                  if (rows.length) return rows;
+                }
+
+                return [];
+              });
+
+              if (rows.length) {
+                extractedRows = rows;
+                break;
+              }
+            }
+
+            if (extractedRows.length) {
+              ctx.log(`7zap: extracted ${extractedRows.length} rows`, {
+                sample: extractedRows.slice(0, 3).map((r) => r.rawOem),
+              });
+            }
 
             for (const row of extractedRows) {
-              const normalizedOem = normalizeOem(row.oem);
-              if (!normalizedOem) continue;
+              const normalizedOem = normalizeOem(row.rawOem);
+              if (!normalizedOem || normalizedOem.length < 6) continue;
+
               results.push({
                 oem: normalizedOem,
-                rawOem: row.rawOem ?? row.oem,
-                description: row.description,
-                groupPath: row.groupPath ?? input.partGroupPath,
+                rawOem: row.rawOem,
+                description: row.description || undefined,
+                groupPath: input.partGroupPath,
                 provider: this.id,
-                url: row.url ?? page.url(),
+                url: page.url(),
                 confidence: baseConfidence,
                 meta: {
                   brand: normalizedBrand,
                   vin: input.vin,
                   model: input.model,
                   year: input.year,
+                  quantity: row.quantity,
                 },
               });
             }

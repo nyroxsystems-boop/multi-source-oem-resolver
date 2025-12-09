@@ -1,0 +1,6 @@
+{
+  "name": "multi-source-oem-resolver",
+  "version": "0.1",
+  "buildCommand": "npm install && npm run build",
+  "startCommand": "npm start"
+}

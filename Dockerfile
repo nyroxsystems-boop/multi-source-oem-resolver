@@ -1,17 +1,21 @@
-# Start from Apify image that already includes Playwright + Chrome/Chromium binaries
+# Base image with Playwright + Chromium
 FROM apify/actor-node-playwright-chrome:20
 
+# Ensure we have permissions to install dependencies
+USER root
 WORKDIR /usr/src/app
 
-# Install deps (includes postinstall build)
+# Install dependencies first (production, but with TS available)
 COPY package*.json ./
-RUN npm ci --legacy-peer-deps
+RUN chown -R node:node /usr/src/app
+USER node
+RUN npm ci --legacy-peer-deps --unsafe-perm
 
-# Copy source
-COPY . ./
+# Copy source as node user
+COPY --chown=node:node . ./
 
-# Build TS -> dist (noop if already built by postinstall)
+# Build TypeScript -> dist
 RUN npm run build
 
-# Default start
+# Start the actor
 CMD ["npm", "start"]

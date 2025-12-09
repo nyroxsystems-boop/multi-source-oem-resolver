@@ -24,7 +24,8 @@ export class SevenZapProvider implements Provider {
 
   canHandle(input: ParsedInput): boolean {
     const brand = input.normalizedBrand ?? (input.brand ? normalizeBrand(input.brand) : undefined);
-    return !!input.partQuery && !!brand && this.supportedBrands.includes(brand);
+    const hasQuery = input.partQuery && input.partQuery.trim().length >= 3;
+    return !!hasQuery && !!brand && this.supportedBrands.includes(brand);
   }
 
   async fetch(input: ParsedInput, ctx: ProviderContext): Promise<OemCandidate[]> {

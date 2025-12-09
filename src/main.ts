@@ -46,13 +46,13 @@ Actor.main(async () => {
 const globalLog = createLogger('OEM-ULTRA-RESOLVER');
 
   const crawler = new PlaywrightCrawler({
-    maxRequestsPerCrawl: 100,
-    maxConcurrency: 1,
-    navigationTimeoutSecs: 30,
+    maxRequestsPerCrawl: 1000,
+    maxConcurrency: 3,
+    navigationTimeoutSecs: 20,
     requestHandlerTimeoutSecs: 60,
     browserPoolOptions: {
-      maxOpenPagesPerBrowser: 1,
-      retireBrowserAfterPageCount: 1,
+      maxOpenPagesPerBrowser: 3,
+      retireBrowserAfterPageCount: 20,
     },
     launchContext: {
       launchOptions: {
@@ -60,6 +60,12 @@ const globalLog = createLogger('OEM-ULTRA-RESOLVER');
         args: ['--disable-dev-shm-usage', '--no-sandbox'],
       },
     },
+    preNavigationHooks: [
+      async (_ctx, goToOptions) => {
+        goToOptions.waitUntil = 'domcontentloaded';
+        goToOptions.timeout = 20_000;
+      },
+    ],
     async requestHandler(crawlingCtx) {
       const handler = (crawlingCtx.request.userData as { handler?: UserDataHandler }).handler;
       if (handler) {
@@ -84,14 +90,34 @@ const globalLog = createLogger('OEM-ULTRA-RESOLVER');
     }
 
     const allCandidates: OemCandidate[] = [];
+    const nonFallbackProviders = selectedProviders.filter((p) => p.id !== 'FALLBACK');
+    const fallbackProvider = providers.find((p) => p.id === 'FALLBACK');
 
-    for (const provider of selectedProviders) {
+    for (const provider of nonFallbackProviders) {
       try {
         queryLog(`Running provider ${provider.id}`);
         const providerResults = await provider.fetch(parsed, providerCtx);
         allCandidates.push(...providerResults);
+
+        const { primary } = scoreCandidates(allCandidates, parsed.partGroupPath);
+        if (primary && (primary.confidence || 0) >= 0.9) {
+          queryLog(
+            `Stopping provider chain after ${provider.id} – high confidence (${primary.confidence})`,
+          );
+          break;
+        }
       } catch (err: any) {
         queryLog(`Provider ${provider.id} failed: ${err?.message || err}`, { err });
+      }
+    }
+
+    if (!allCandidates.length && fallbackProvider && fallbackProvider.canHandle(parsed)) {
+      try {
+        queryLog('Running fallback provider');
+        const fallbackResults = await fallbackProvider.fetch(parsed, providerCtx);
+        allCandidates.push(...fallbackResults);
+      } catch (err: any) {
+        queryLog(`Fallback provider failed: ${err?.message || err}`, { err });
       }
     }
 

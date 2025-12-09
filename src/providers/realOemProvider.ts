@@ -19,57 +19,68 @@ export class RealOemProvider implements Provider {
     const hasVin = !!input.vin;
     const baseConfidence = hasVin ? 0.97 : 0.92;
 
-    await ctx.crawler.run([
-      {
-        url: baseUrl,
-        userData: {
-          label: 'REALOEM_START',
-          handler: async (playCtx: PlaywrightCrawlingContext) => {
-            const { page } = playCtx;
-            ctx.log(`RealOEM: start ${input.partQuery || ''}`);
+    try {
+      await ctx.crawler.run([
+        {
+          url: baseUrl,
+          userData: {
+            label: 'REALOEM_START',
+            handler: async (playCtx: PlaywrightCrawlingContext) => {
+              const { page } = playCtx;
+              ctx.log(`RealOEM: start ${input.partQuery || ''}`);
 
-            // TODO: Confirm RealOEM ToS/robots before automation.
+              await Promise.race([
+                (async () => {
+                  // TODO: Confirm RealOEM ToS/robots before automation.
 
-            if (input.vin) {
-              // TODO: Use VIN search form for BMW, submit input.vin, navigate to model landing page.
-            } else {
-              // TODO: Navigate via chassis/model/year selection for BMW (series -> model -> production date).
-            }
+                  if (input.vin) {
+                    // TODO: Use VIN search form for BMW, submit input.vin, navigate to model landing page.
+                  } else {
+                    // TODO: Navigate via chassis/model/year selection for BMW (series -> model -> production date).
+                  }
 
-            // TODO: Navigate to appropriate part group or use search box for input.partQuery.
+                  // TODO: Navigate to appropriate part group or use search box for input.partQuery.
 
-            // TODO: Replace with parsing of RealOEM parts table rows (OEM number, description, quantity).
-            const extractedRows: Array<{
-              oem: string;
-              description?: string;
-              groupPath?: string[];
-              url?: string;
-              rawOem?: string;
-            }> = [];
+                  // TODO: Replace with parsing of RealOEM parts table rows (OEM number, description, quantity).
+                  const extractedRows: Array<{
+                    oem: string;
+                    description?: string;
+                    groupPath?: string[];
+                    url?: string;
+                    rawOem?: string;
+                  }> = [];
 
-            for (const row of extractedRows) {
-              const normalizedOem = normalizeOem(row.oem);
-              if (!normalizedOem) continue;
-              results.push({
-                oem: normalizedOem,
-                rawOem: row.rawOem ?? row.oem,
-                description: row.description,
-                groupPath: row.groupPath ?? input.partGroupPath,
-                provider: this.id,
-                url: row.url ?? page.url(),
-                confidence: baseConfidence,
-                meta: {
-                  brand: 'BMW',
-                  vin: input.vin,
-                  model: input.model,
-                  year: input.year,
-                },
-              });
-            }
+                  for (const row of extractedRows) {
+                    const normalizedOem = normalizeOem(row.oem);
+                    if (!normalizedOem) continue;
+                    results.push({
+                      oem: normalizedOem,
+                      rawOem: row.rawOem ?? row.oem,
+                      description: row.description,
+                      groupPath: row.groupPath ?? input.partGroupPath,
+                      provider: this.id,
+                      url: row.url ?? page.url(),
+                      confidence: baseConfidence,
+                      meta: {
+                        brand: 'BMW',
+                        vin: input.vin,
+                        model: input.model,
+                        year: input.year,
+                      },
+                    });
+                  }
+                })(),
+                new Promise((_, reject) =>
+                  setTimeout(() => reject(new Error('RealOEM inner timeout')), 15_000),
+                ),
+              ]);
+            },
           },
         },
-      },
-    ]);
+      ]);
+    } catch (err) {
+      ctx.log(`RealOEM error: ${(err as Error).message}`);
+    }
 
     const fake: OemCandidate = {
       oem: normalizeOem('12120037244'),

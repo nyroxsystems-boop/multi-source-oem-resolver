@@ -43,13 +43,16 @@ Actor.main(async () => {
   const parsedInput = inputSchema.parse(rawInput);
   const inputs: OemResolverInput[] = 'queries' in parsedInput ? parsedInput.queries : [parsedInput];
 
-  const globalLog = createLogger('OEM-ULTRA-RESOLVER');
+const globalLog = createLogger('OEM-ULTRA-RESOLVER');
 
   const crawler = new PlaywrightCrawler({
     maxRequestsPerCrawl: 100,
-    maxConcurrency: 1, // keep memory low
+    maxConcurrency: 1,
+    navigationTimeoutSecs: 30,
+    requestHandlerTimeoutSecs: 60,
     browserPoolOptions: {
       maxOpenPagesPerBrowser: 1,
+      retireBrowserAfterPageCount: 1,
     },
     launchContext: {
       launchOptions: {
@@ -57,7 +60,6 @@ Actor.main(async () => {
         args: ['--disable-dev-shm-usage', '--no-sandbox'],
       },
     },
-    requestHandlerTimeoutSecs: 90,
     async requestHandler(crawlingCtx) {
       const handler = (crawlingCtx.request.userData as { handler?: UserDataHandler }).handler;
       if (handler) {

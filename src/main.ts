@@ -47,7 +47,16 @@ Actor.main(async () => {
 
   const crawler = new PlaywrightCrawler({
     maxRequestsPerCrawl: 100,
-    maxConcurrency: 2,
+    maxConcurrency: 1, // keep memory low
+    browserPoolOptions: {
+      maxOpenPagesPerBrowser: 1,
+    },
+    launchContext: {
+      launchOptions: {
+        headless: true,
+        args: ['--disable-dev-shm-usage', '--no-sandbox'],
+      },
+    },
     requestHandlerTimeoutSecs: 90,
     async requestHandler(crawlingCtx) {
       const handler = (crawlingCtx.request.userData as { handler?: UserDataHandler }).handler;

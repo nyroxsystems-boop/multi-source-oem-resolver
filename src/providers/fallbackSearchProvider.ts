@@ -1,6 +1,6 @@
 import { PlaywrightCrawlingContext } from 'crawlee';
 import { OemCandidate, ParsedInput } from '../types';
-import { normalizeOem } from '../utils/normalize';
+import { looksLikeOem, normalizeOem } from '../utils/oem';
 import { Provider, ProviderContext } from './base';
 
 export class FallbackSearchProvider implements Provider {
@@ -8,7 +8,9 @@ export class FallbackSearchProvider implements Provider {
   supportedBrands: string[] = [];
 
   canHandle(input: ParsedInput): boolean {
-    return !!input.partQuery || !!input.rawQuery;
+    const hasText = !!input.partQuery || !!input.rawQuery;
+    const hasBrandOrVin = !!input.vin || !!input.normalizedBrand || !!input.brand;
+    return hasText && !hasBrandOrVin;
   }
 
   async fetch(input: ParsedInput, ctx: ProviderContext): Promise<OemCandidate[]> {
@@ -37,23 +39,25 @@ export class FallbackSearchProvider implements Provider {
 
               // TODO: Confirm allowance for scraping search result pages or switch to custom EPC search endpoint.
 
-              // TODO: Replace with actual result parsing + follow-up requests to EPC detail pages.
-              const extractedRows: Array<{
-                oem: string;
-                url?: string;
-                description?: string;
-                rawOem?: string;
-              }> = [];
+              const bodyText = await page.textContent('body');
+              if (!bodyText) return;
 
-              for (const row of extractedRows) {
-                const normalizedOem = normalizeOem(row.oem);
-                if (!normalizedOem) continue;
+              const matches = bodyText.match(/[A-Z0-9][A-Z0-9\-\s]{6,}/gi) || [];
+              const seen = new Set<string>();
+
+              for (const raw of matches) {
+                const trimmed = raw.trim();
+                if (!looksLikeOem(trimmed)) continue;
+                const normalizedOem = normalizeOem(trimmed);
+                if (!normalizedOem || seen.has(normalizedOem)) continue;
+                seen.add(normalizedOem);
+
                 results.push({
                   oem: normalizedOem,
-                  rawOem: row.rawOem ?? row.oem,
-                  description: row.description,
+                  rawOem: trimmed,
+                  description: 'Fallback extracted OEM-like string',
                   provider: this.id,
-                  url: row.url ?? page.url(),
+                  url: page.url(),
                   confidence: baseConfidence,
                   meta: {
                     term,

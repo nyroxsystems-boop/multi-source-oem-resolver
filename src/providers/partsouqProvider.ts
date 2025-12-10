@@ -1,6 +1,7 @@
 import { PlaywrightCrawlingContext } from 'crawlee';
 import { OemCandidate, ParsedInput } from '../types';
-import { normalizeBrand, normalizeOem } from '../utils/normalize';
+import { normalizeBrand } from '../utils/normalize';
+import { looksLikeOem, normalizeOem } from '../utils/oem';
 import { Provider, ProviderContext } from './base';
 
 export class PartsouqProvider implements Provider {
@@ -42,25 +43,46 @@ export class PartsouqProvider implements Provider {
 
             // TODO: Navigate to specific part group or search for input.partQuery within the catalog UI.
 
-            // TODO: Replace with actual selector parsing for parts list/diagram.
-            const extractedRows: Array<{
-              oem: string;
-              description?: string;
-              groupPath?: string[];
-              url?: string;
-              rawOem?: string;
-            }> = [];
+            try {
+              await page.waitForSelector('table', { timeout: 15_000 });
+            } catch {
+              ctx.log('Partsouq: table not found within timeout');
+            }
 
-            for (const row of extractedRows) {
-              const normalizedOem = normalizeOem(row.oem);
+            type Row = { rawOem: string; name: string };
+            const rows = (await page.$$eval('table tr', (trs) => {
+              return trs
+                .map((tr) => {
+                  const cells = Array.from(tr.querySelectorAll('td')) as HTMLTableCellElement[];
+                  if (cells.length < 2) return null;
+
+                  const numberLink = cells[0].querySelector('a');
+                  const rawOem = (numberLink?.textContent || '').trim();
+                  const name = (cells[1].textContent || '').trim();
+
+                  if (!rawOem) return null;
+                  return { rawOem, name };
+                })
+                .filter(Boolean) as Row[];
+            })) as Row[];
+
+            for (const row of rows) {
+              if (!looksLikeOem(row.rawOem)) continue;
+
+              const nameLower = row.name.toLowerCase();
+              const pq = (input.normalizedPartQuery || '').toLowerCase();
+              if (pq && !nameLower.includes(pq) && !nameLower.includes('spark plug')) continue;
+
+              const normalizedOem = normalizeOem(row.rawOem);
               if (!normalizedOem) continue;
+
               results.push({
                 oem: normalizedOem,
-                rawOem: row.rawOem ?? row.oem,
-                description: row.description,
-                groupPath: row.groupPath ?? input.partGroupPath,
+                rawOem: row.rawOem,
+                description: row.name,
+                groupPath: input.partGroupPath,
                 provider: this.id,
-                url: row.url ?? page.url(),
+                url: page.url(),
                 confidence: baseConfidence,
                 meta: {
                   brand: normalizedBrand,

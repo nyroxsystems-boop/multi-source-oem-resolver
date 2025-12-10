@@ -1,6 +1,7 @@
 import { PlaywrightCrawlingContext } from 'crawlee';
 import { OemCandidate, ParsedInput } from '../types';
-import { normalizeBrand, normalizeOem } from '../utils/normalize';
+import { normalizeBrand } from '../utils/normalize';
+import { looksLikeOem, normalizeOem } from '../utils/oem';
 import { Provider, ProviderContext } from './base';
 
 export class RealOemProvider implements Provider {
@@ -41,25 +42,57 @@ export class RealOemProvider implements Provider {
 
                   // TODO: Navigate to appropriate part group or use search box for input.partQuery.
 
-                  // TODO: Replace with parsing of RealOEM parts table rows (OEM number, description, quantity).
-                  const extractedRows: Array<{
-                    oem: string;
-                    description?: string;
-                    groupPath?: string[];
-                    url?: string;
-                    rawOem?: string;
-                  }> = [];
+                  // Heuristic extraction from parts table with "Part Number" header.
+                  try {
+                    await page.waitForSelector('text=Part Number', { timeout: 15_000 });
+                  } catch {
+                    ctx.log('RealOEM: Part Number header not found within timeout');
+                  }
 
-                  for (const row of extractedRows) {
-                    const normalizedOem = normalizeOem(row.oem);
-                    if (!normalizedOem) continue;
+                  type Row = { description: string; rawOem: string };
+                  const rows = (await page.$$eval('table tr', (trs) => {
+                    return trs
+                      .map((tr) => {
+                        const cells = Array.from(tr.querySelectorAll('td')) as HTMLTableCellElement[];
+                        if (!cells.length) return null;
+
+                        const textCells = cells
+                          .map((c) => (c.textContent || '').trim())
+                          .filter(Boolean);
+                        if (!textCells.length) return null;
+
+                        const description = textCells[1] || '';
+                        const possibleOem =
+                          textCells[textCells.length - 2] || textCells[textCells.length - 1] || '';
+
+                        return {
+                          description,
+                          rawOem: possibleOem,
+                        };
+                      })
+                      .filter(Boolean) as Row[];
+                  })) as Row[];
+
+                  for (const row of rows) {
+                    if (!row.rawOem) continue;
+                    if (!looksLikeOem(row.rawOem)) continue;
+
+                    const descLower = row.description.toLowerCase();
+                    const pq = (input.normalizedPartQuery || '').toLowerCase();
+                    if (pq && !descLower.includes(pq) && !descLower.includes('spark plug')) {
+                      continue;
+                    }
+
+                    const oem = normalizeOem(row.rawOem);
+                    if (!oem) continue;
+
                     results.push({
-                      oem: normalizedOem,
-                      rawOem: row.rawOem ?? row.oem,
+                      oem,
+                      rawOem: row.rawOem,
                       description: row.description,
-                      groupPath: row.groupPath ?? input.partGroupPath,
+                      groupPath: input.partGroupPath,
                       provider: this.id,
-                      url: row.url ?? page.url(),
+                      url: page.url(),
                       confidence: baseConfidence,
                       meta: {
                         brand: 'BMW',
@@ -82,17 +115,6 @@ export class RealOemProvider implements Provider {
       ctx.log(`RealOEM error: ${(err as Error).message}`);
     }
 
-    const fake: OemCandidate = {
-      oem: normalizeOem('12120037244'),
-      rawOem: '12 12 0 037 244',
-      description: 'FAKE TEST SPARK PLUG',
-      groupPath: ['Engine', 'Ignition'],
-      provider: this.id,
-      url: 'https://www.realoem.com/',
-      confidence: 0.95,
-      meta: { test: true },
-    };
-
-    return [fake, ...results];
+    return results;
   }
 }

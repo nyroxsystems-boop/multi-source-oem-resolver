@@ -1,6 +1,6 @@
 import { PlaywrightCrawlingContext } from 'crawlee';
 import { OemCandidate, ParsedInput } from '../types';
-import { normalizeOem } from '../utils/normalize';
+import { looksLikeOem, normalizeOem } from '../utils/oem';
 import { Provider, ProviderContext } from './base';
 
 export class AutodocProvider implements Provider {
@@ -9,7 +9,9 @@ export class AutodocProvider implements Provider {
   supportedBrands: string[] = []; // Works as cross-reference for most brands.
 
   canHandle(input: ParsedInput): boolean {
-    return !!input.partQuery;
+    if (!input.partQuery) return false;
+    const looksLikeOemQuery = /\d{5,}/.test(input.partQuery);
+    return !!input.normalizedBrand || looksLikeOemQuery;
   }
 
   async fetch(input: ParsedInput, ctx: ProviderContext): Promise<OemCandidate[]> {
@@ -31,32 +33,48 @@ export class AutodocProvider implements Provider {
 
             // TODO: Review Autodoc ToS/robots before scraping or automate via API if available.
 
-            // TODO: Add vehicle filter if model/year/engine info exists.
+            // Try to expand OEM section if present.
+            const trigger = await page.$('text=/OEM numbers/i');
+            if (trigger) {
+              await trigger.click().catch(() => {});
+              await page.waitForTimeout(500);
+            }
 
-            // TODO: Replace with actual parsing of Autodoc "OEM reference" blocks per product.
-            const extractedRows: Array<{
-              oem: string;
-              description?: string;
-              url?: string;
-              rawOem?: string;
-            }> = [];
+            const texts = await page.$$eval('*', (nodes) => {
+              const res: string[] = [];
+              for (const node of nodes as HTMLElement[]) {
+                const text = (node.textContent || '').trim();
+                if (!text) continue;
+                if (/OEM/i.test(text) || /OE\s*number/i.test(text)) {
+                  res.push(text);
+                }
+              }
+              return res;
+            });
 
-            for (const row of extractedRows) {
-              const normalizedOem = normalizeOem(row.oem);
-              if (!normalizedOem) continue;
-              results.push({
-                oem: normalizedOem,
-                rawOem: row.rawOem ?? row.oem,
-                description: row.description,
-                provider: this.id,
-                url: row.url ?? page.url(),
-                confidence: baseConfidence,
-                meta: {
-                  brand: input.normalizedBrand ?? input.brand,
-                  model: input.model,
-                  year: input.year,
-                },
-              });
+            const seen = new Set<string>();
+            for (const block of texts) {
+              const tokens = block.split(/[\s,;\/]+/);
+              for (const token of tokens) {
+                if (!looksLikeOem(token)) continue;
+                const normalizedOem = normalizeOem(token);
+                if (!normalizedOem || seen.has(normalizedOem)) continue;
+                seen.add(normalizedOem);
+
+                results.push({
+                  oem: normalizedOem,
+                  rawOem: token,
+                  description: 'Autodoc cross-reference',
+                  provider: this.id,
+                  url: page.url(),
+                  confidence: baseConfidence,
+                  meta: {
+                    brand: input.normalizedBrand ?? input.brand,
+                    model: input.model,
+                    year: input.year,
+                  },
+                });
+              }
             }
           },
         },

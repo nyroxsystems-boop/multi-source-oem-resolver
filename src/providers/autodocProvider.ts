@@ -18,27 +18,31 @@ export class AutodocProvider implements Provider {
     const results: OemCandidate[] = [];
     if (!input.partQuery) return results;
 
-    const queryParam = encodeURIComponent(input.partQuery);
-    const url = `https://www.autodoc.de/auto-teile/${queryParam}`;
-    const baseConfidence = 0.7; // Cross-reference stabilizer, boosted later if matched with EPC.
+    const terms = [input.partQuery, input.normalizedBrand || input.brand, input.model, input.engineCode]
+      .filter(Boolean)
+      .join(' ');
+    const searchUrl = `https://www.autodoc.de/search?keyword=${encodeURIComponent(terms)}`;
+    const baseConfidence = 0.65;
 
     await ctx.crawler.run([
       {
-        url,
+        url: searchUrl,
         userData: {
           label: 'AUTODOC_SEARCH',
           handler: async (playCtx: PlaywrightCrawlingContext) => {
             const { page } = playCtx;
-            ctx.log(`Autodoc: searching ${input.partQuery}`);
+            ctx.log(`Autodoc: searching terms "${terms}"`, { url: searchUrl });
 
-            // TODO: Review Autodoc ToS/robots before scraping or automate via API if available.
+            // Allow page to load search results.
+            await page.waitForLoadState('domcontentloaded');
+            await page.waitForTimeout(500);
 
-            // Try to expand OEM section if present.
-            const trigger = await page.$('text=/OEM numbers/i');
-            if (trigger) {
-              await trigger.click().catch(() => {});
-              await page.waitForTimeout(500);
+            // Try to expand OEM sections if visible on the page.
+            const triggers = await page.$$('text=/OEM numbers|OE numbers/i');
+            for (const trig of triggers) {
+              await trig.click().catch(() => {});
             }
+            await page.waitForTimeout(500);
 
             const texts = await page.$$eval('*', (nodes) => {
               const res: string[] = [];

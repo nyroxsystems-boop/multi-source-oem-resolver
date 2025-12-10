@@ -99,7 +99,17 @@ const globalLog = createLogger('OEM-ULTRA-RESOLVER');
         const providerResults = await provider.fetch(parsed, providerCtx);
         allCandidates.push(...providerResults);
 
-        const { primary } = scoreCandidates(allCandidates, parsed.partGroupPath);
+        const { scored, primary } = scoreCandidates(allCandidates, parsed.partGroupPath);
+
+        if (scored.length) {
+          queryLog(
+            `After ${provider.id}, candidates: ${scored
+              .slice(0, 5)
+              .map((c) => `${c.oem} (${c.provider}, conf=${c.confidence.toFixed(2)})`)
+              .join('; ')}`,
+          );
+        }
+
         if (primary && (primary.confidence || 0) >= 0.9) {
           queryLog(
             `Stopping provider chain after ${provider.id} – high confidence (${primary.confidence})`,

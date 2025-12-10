@@ -71,7 +71,14 @@ export class PartsouqProvider implements Provider {
 
               const nameLower = row.name.toLowerCase();
               const pq = (input.normalizedPartQuery || '').toLowerCase();
-              if (pq && !nameLower.includes(pq) && !nameLower.includes('spark plug')) continue;
+              if (
+                pq &&
+                !nameLower.includes(pq) &&
+                !nameLower.includes('spark plug') &&
+                !nameLower.includes('air filter') &&
+                !nameLower.includes('element')
+              )
+                continue;
 
               const normalizedOem = normalizeOem(row.rawOem);
               if (!normalizedOem) continue;

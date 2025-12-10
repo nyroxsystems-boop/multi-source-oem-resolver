@@ -50,10 +50,9 @@ Actor.main(async () => {
     maxConcurrency: 3,
     navigationTimeoutSecs: 20,
     requestHandlerTimeoutSecs: 60,
-    // Proxy placeholder for ScraperAPI; set APIFY_PROXY_CONFIGURATION or add proxyUrls here if needed.
-    // proxyConfiguration: await Actor.createProxyConfiguration({
-    //   proxyUrls: ['http://scraperapi:YOUR_KEY@proxy-server.scraperapi.com:8001'],
-    // }),
+    proxyConfiguration: await Actor.createProxyConfiguration({
+      proxyUrls: ['http://scraperapi:30cb9073f3273243a3134450b038857a@proxy-server.scraperapi.com:8001'],
+    }),
     browserPoolOptions: {
       maxOpenPagesPerBrowser: 3,
       retireBrowserAfterPageCount: 20,

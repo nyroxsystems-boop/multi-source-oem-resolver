@@ -43,11 +43,11 @@ export class RealOemProvider implements Provider {
                   // TODO: Navigate to appropriate part group or use search box for input.partQuery.
 
                   // Heuristic extraction from parts table with "Part Number" header.
-                  try {
-                    await page.waitForSelector('text=Part Number', { timeout: 15_000 });
-                  } catch {
-                    ctx.log('RealOEM: Part Number header not found within timeout');
-                  }
+            try {
+              await page.waitForSelector('text=Part Number', { timeout: 15_000 });
+            } catch {
+              ctx.log('RealOEM: Part Number header not found within timeout', { url: page.url() });
+            }
 
             type Row = { description: string; rawOem: string };
             const rows = (await page.$$eval('table tr', (trs) => {
@@ -109,12 +109,12 @@ export class RealOemProvider implements Provider {
                 ),
               ]);
 
-              if (!results.length) {
-                // Fallback: scrape page text for OEM-like tokens.
-                const bodyText = (await page.textContent('body')) || '';
-                const tokens = bodyText.match(/[A-Z0-9][A-Z0-9\-\s]{6,}/gi) || [];
-                for (const t of tokens) {
-                  if (!looksLikeOem(t)) continue;
+            if (!results.length) {
+              // Fallback: scrape page text for OEM-like tokens.
+              const bodyText = (await page.textContent('body')) || '';
+              const tokens = bodyText.match(/[A-Z0-9][A-Z0-9\-\s]{6,}/gi) || [];
+              for (const t of tokens) {
+                if (!looksLikeOem(t)) continue;
                   const oem = normalizeOem(t);
                   if (!oem) continue;
                   results.push({
@@ -131,15 +131,20 @@ export class RealOemProvider implements Provider {
                       vin: input.vin,
                       model: input.model,
                       year: input.year,
-                      fallback: true,
-                    },
-                  });
-                }
+                    fallback: true,
+                  },
+                });
               }
-            },
+            }
+
+            ctx.log(`RealOEM: parsed ${results.length} candidates`, {
+              url: page.url(),
+              sample: results.slice(0, 3).map((r) => r.oem),
+            });
           },
         },
-      ]);
+      },
+    ]);
     } catch (err) {
       ctx.log(`RealOEM error: ${(err as Error).message}`);
     }

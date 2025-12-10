@@ -35,7 +35,7 @@ export class PartsouqProvider implements Provider {
             try {
               await page.waitForSelector('table', { timeout: 15_000 });
             } catch {
-              ctx.log('Partsouq: table not found within timeout');
+              ctx.log('Partsouq: table not found within timeout', { url: page.url() });
             }
 
             type Row = { rawOem: string; name: string };
@@ -117,6 +117,11 @@ export class PartsouqProvider implements Provider {
                 });
               }
             }
+
+            ctx.log(`Partsouq: parsed ${results.length} candidates`, {
+              url: page.url(),
+              sample: results.slice(0, 3).map((r) => r.oem),
+            });
           },
         },
       },

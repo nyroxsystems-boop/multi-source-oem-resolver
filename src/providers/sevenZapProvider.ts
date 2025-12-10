@@ -127,8 +127,11 @@ export class SevenZapProvider implements Provider {
 
             if (extractedRows.length) {
               ctx.log(`7zap: extracted ${extractedRows.length} rows`, {
+                url: page.url(),
                 sample: extractedRows.slice(0, 3).map((r) => r.rawOem),
               });
+            } else {
+              ctx.log('7zap: no table rows found', { url: page.url() });
             }
 
             for (const row of extractedRows) {
@@ -180,6 +183,10 @@ export class SevenZapProvider implements Provider {
                 });
               }
             }
+            ctx.log(`7zap: parsed ${results.length} candidates`, {
+              url: page.url(),
+              sample: results.slice(0, 3).map((r) => r.oem),
+            });
           },
         },
       },

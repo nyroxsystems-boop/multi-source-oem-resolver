@@ -1,6 +1,7 @@
 import { PlaywrightCrawlingContext } from 'crawlee';
 import { OemCandidate, ParsedInput } from '../types';
 import { looksLikeOem, normalizeOem } from '../utils/oem';
+import { logOEMResult } from '../utils/oemLog';
 import { Provider, ProviderContext } from './base';
 
 export class AutodocProvider implements Provider {
@@ -57,6 +58,7 @@ export class AutodocProvider implements Provider {
             });
 
             const seen = new Set<string>();
+            const rowBuffer: { oem: string; rawOem: string }[] = [];
             for (const block of texts) {
               const tokens = block.split(/[\s,;\/]+/);
               for (const token of tokens) {
@@ -64,10 +66,11 @@ export class AutodocProvider implements Provider {
                 const normalizedOem = normalizeOem(token);
                 if (!normalizedOem || seen.has(normalizedOem)) continue;
                 seen.add(normalizedOem);
+                const row = { oem: normalizedOem, rawOem: token };
+                rowBuffer.push(row);
 
                 results.push({
-                  oem: normalizedOem,
-                  rawOem: token,
+                  ...row,
                   description: 'Autodoc cross-reference',
                   provider: this.id,
                   url: page.url(),
@@ -81,6 +84,8 @@ export class AutodocProvider implements Provider {
                 });
               }
             }
+
+            await logOEMResult(ctx, this.id, page, rowBuffer);
           },
         },
       },

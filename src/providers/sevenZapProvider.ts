@@ -2,6 +2,7 @@ import { PlaywrightCrawlingContext } from 'crawlee';
 import { OemCandidate, ParsedInput } from '../types';
 import { normalizeBrand, normalizeOem } from '../utils/normalize';
 import { looksLikeOem } from '../utils/oem';
+import { logOEMResult } from '../utils/oemLog';
 import { Provider, ProviderContext } from './base';
 
 export class SevenZapProvider implements Provider {
@@ -187,6 +188,7 @@ export class SevenZapProvider implements Provider {
               url: page.url(),
               sample: results.slice(0, 3).map((r) => r.oem),
             });
+            await logOEMResult(ctx, this.id, page, results);
           },
         },
       },

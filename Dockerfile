@@ -9,8 +9,7 @@ COPY package*.json ./
 RUN chown -R node:node /usr/src/app
 
 USER node
-RUN npm ci --legacy-peer-deps --unsafe-perm --ignore-scripts \
-  && npx playwright install --with-deps chromium
+RUN npm ci --legacy-peer-deps --unsafe-perm --ignore-scripts
 
 # Copy full source with proper ownership
 COPY --chown=node:node . ./

@@ -1,55 +1,40 @@
-export interface OemResolverInput {
-  rawQuery: string;
-  vin?: string;
-  brand?: string;
-  model?: string;
-  year?: number;
-  engineCode?: string;
-  partQuery?: string;
-  locale?: string;
-  countryCode?: string;
+export interface SevenZapInput {
+  brand: string;
+  region?: string;
+  vin?: string | null;
+  modelName?: string | null;
+  year?: number | null;
+  partGroup: string;
+  partName: string;
 }
 
-export interface OemCandidate {
+export interface VehicleResolved {
+  model?: string;
+  series?: string;
+  year?: string;
+  engine?: string;
+  prCodes?: string[];
+  extra?: Record<string, any>;
+}
+
+export interface OemEntry {
   oem: string;
-  rawOem?: string;
-  description?: string;
-  groupPath?: string[];
-  provider: '7ZAP' | 'PARTSOUQ' | 'REALOEM' | 'AUTODOC' | 'FALLBACK';
-  url?: string;
-  confidence: number;
-  sourceType?: ProviderSourceType;
-  supersedes?: string[];
-  supersededBy?: string[];
-  meta?: Record<string, any>;
+  description: string | null;
+  extraInfo: string | null;
+  position: string | null;
 }
 
-export interface OemResolverOutput {
-  parsedInput: {
-    brand?: string;
-    model?: string;
-    year?: number;
-    engineCode?: string;
-    partQuery?: string;
-    vin?: string;
+export interface SevenZapOutput {
+  brand: string;
+  vin?: string | null;
+  vehicleResolved?: VehicleResolved;
+  partGroup: string;
+  partName: string;
+  diagramUrl?: string;
+  oemNumbers: OemEntry[];
+  meta: {
+    source: '7zap';
+    confidence: 'high' | 'medium';
+    timestamp: string;
   };
-  candidates: OemCandidate[];
-  primary?: OemCandidate;
 }
-
-export interface ParsedInput {
-  rawQuery: string;
-  vin?: string;
-  brand?: string;
-  normalizedBrand?: string;
-  model?: string;
-  year?: number;
-  engineCode?: string;
-  partQuery?: string;
-  normalizedPartQuery?: string;
-  partGroupPath?: string[];
-  locale?: string;
-  countryCode?: string;
-}
-
-export type ProviderSourceType = 'EPC' | 'CROSSREF' | 'SHOP_FREEFORM' | 'SEARCH_FALLBACK';

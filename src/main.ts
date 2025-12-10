@@ -1,61 +1,65 @@
-import { Actor } from 'apify';
+import { Actor, log } from 'apify';
 import { PlaywrightCrawler, PlaywrightCrawlingContext } from 'crawlee';
 import { z } from 'zod';
-import { createLogger } from './utils/log';
+import { logOEMResult } from './utils/oemLog';
 import { normalizeBrand, normalizeOem, normalizeText } from './utils/normalize';
-import { parseBrand } from './utils/brandParser';
-import { parsePart } from './utils/partParser';
-import { scoreCandidates } from './utils/scoring';
-import { OemCandidate, OemResolverInput, OemResolverOutput, ParsedInput } from './types';
-import { AutodocProvider } from './providers/autodocProvider';
-import { FallbackSearchProvider } from './providers/fallbackSearchProvider';
-import { PartsouqProvider } from './providers/partsouqProvider';
-import { Provider, ProviderContext } from './providers/base';
-import { RealOemProvider } from './providers/realOemProvider';
-import { SevenZapProvider } from './providers/sevenZapProvider';
+import { SevenZapInput, SevenZapOutput, VehicleResolved, OemEntry } from './types';
+import { looksLikeOem } from './utils/oem';
 
 type UserDataHandler = (ctx: PlaywrightCrawlingContext) => Promise<void>;
 
-const singleInputSchema = z.object({
-  rawQuery: z.string(),
-  vin: z.string().optional(),
-  brand: z.string().optional(),
-  model: z.string().optional(),
-  year: z.number().optional(),
-  engineCode: z.string().optional(),
-  partQuery: z.string().optional(),
-  locale: z.string().optional(),
-  countryCode: z.string().optional(),
-});
+const inputSchema = z.union([
+  z.object({
+    brand: z.string(),
+    region: z.string().optional(),
+    vin: z.string().nullable().optional(),
+    modelName: z.string().nullable().optional(),
+    year: z.number().nullable().optional(),
+    partGroup: z.string(),
+    partName: z.string(),
+  }),
+  z.object({
+    queries: z.array(
+      z.object({
+        brand: z.string(),
+        region: z.string().optional(),
+        vin: z.string().nullable().optional(),
+        modelName: z.string().nullable().optional(),
+        year: z.number().nullable().optional(),
+        partGroup: z.string(),
+        partName: z.string(),
+      }),
+    ),
+  }),
+]);
 
-const inputSchema = z.union([singleInputSchema, z.object({ queries: z.array(singleInputSchema) })]);
-
-const providers: Provider[] = [
-  new RealOemProvider(),
-  new SevenZapProvider(),
-  new PartsouqProvider(),
-  new AutodocProvider(),
-  new FallbackSearchProvider(),
-];
+const BRAND_CONFIG: Record<string, { baseUrl: string }> = {
+  VOLKSWAGEN: { baseUrl: 'https://volkswagen.7zap.com/en/europe/' },
+  AUDI: { baseUrl: 'https://audi.7zap.com/en/europe/' },
+  SKODA: { baseUrl: 'https://skoda.7zap.com/en/europe/' },
+  SEAT: { baseUrl: 'https://seat.7zap.com/en/europe/' },
+  RENAULT: { baseUrl: 'https://renault.7zap.com/en/europe/' },
+  PEUGEOT: { baseUrl: 'https://peugeot.7zap.com/en/europe/' },
+  CITROEN: { baseUrl: 'https://citroen.7zap.com/en/europe/' },
+  FORD: { baseUrl: 'https://ford.7zap.com/en/europe/' },
+};
 
 Actor.main(async () => {
   const rawInput = await Actor.getInput();
-  const parsedInput = inputSchema.parse(rawInput);
-  const inputs: OemResolverInput[] = 'queries' in parsedInput ? parsedInput.queries : [parsedInput];
-
-  const globalLog = createLogger('OEM-ULTRA-RESOLVER');
+  const parsed = inputSchema.parse(rawInput);
+  const inputs: SevenZapInput[] = 'queries' in parsed ? parsed.queries : [parsed];
 
   const crawler = new PlaywrightCrawler({
     maxRequestsPerCrawl: 1000,
-    maxConcurrency: 3,
+    maxConcurrency: 2,
     navigationTimeoutSecs: 60,
-    requestHandlerTimeoutSecs: 60,
+    requestHandlerTimeoutSecs: 90,
     proxyConfiguration: await Actor.createProxyConfiguration({
       proxyUrls: ['http://scraperapi:30cb9073f3273243a3134450b038857a@proxy-server.scraperapi.com:8001'],
     }),
     browserPoolOptions: {
-      maxOpenPagesPerBrowser: 3,
-      retireBrowserAfterPageCount: 20,
+      maxOpenPagesPerBrowser: 2,
+      retireBrowserAfterPageCount: 10,
     },
     launchContext: {
       launchOptions: {
@@ -82,154 +86,228 @@ Actor.main(async () => {
     },
   });
 
-  const outputs: OemResolverOutput[] = [];
-
   for (const input of inputs) {
-    const parsed = buildParsedInput(input);
-    const queryLog = createLogger(`Query-${parsed.normalizedBrand || parsed.brand || 'UNKNOWN'}-${parsed.partQuery || ''}`);
-    queryLog('Parsed input', parsed);
+    const logger = log.child({ prefix: `7ZAP-${input.brand}-${input.partName}` });
+    const { baseUrl } = resolveBrandConfig(input);
+    const resultBucket: SevenZapOutput[] = [];
 
-    const providerCtx: ProviderContext = { crawler, log: queryLog };
-    const selectedProviders = pickProviders(parsed);
-    if (!selectedProviders.length) {
-      globalLog(`No provider could handle brand=${parsed.brand} vin=${parsed.vin}`);
-      outputs.push({ parsedInput: parsed, candidates: [] });
-      continue;
-    }
+    await crawler.run([
+      {
+        url: baseUrl,
+        userData: {
+          handler: async (ctx: PlaywrightCrawlingContext) => {
+            const { page } = ctx;
+            const vehicleResolved: VehicleResolved = {};
 
-    const allCandidates: OemCandidate[] = [];
-    const nonFallbackProviders = selectedProviders.filter((p) => p.id !== 'FALLBACK');
-    const fallbackProvider = providers.find((p) => p.id === 'FALLBACK');
+            logger.info(`Opening brand catalog ${baseUrl}`);
+            await openBrandCatalog(page, baseUrl, logger);
 
-    for (const provider of nonFallbackProviders) {
-      try {
-        queryLog(`Running provider ${provider.id}`);
-        const providerResults = await provider.fetch(parsed, providerCtx);
-        allCandidates.push(...providerResults);
+            if (input.vin) {
+              await tryVinSearch(page, input.vin, vehicleResolved, logger);
+            }
+            if (!vehicleResolved.model) {
+              await selectVehicleByModel(page, input, vehicleResolved, logger);
+            }
 
-        const { scored, primary } = scoreCandidates(allCandidates, parsed.partGroupPath);
+            await openPartGroup(page, input.partGroup, logger);
+            await openDiagramForPart(page, input.partName, logger);
 
-        if (scored.length) {
-          queryLog(
-            `After ${provider.id}, candidates: ${scored
-              .slice(0, 5)
-              .map((c) => `${c.oem} (${c.providers.join(',')}, conf=${c.confidence.toFixed(2)})`)
-              .join('; ')}`,
-          );
-        }
+            const { oems, diagramUrl } = await extractOemFromDiagram(page, input.partName, logger);
+            await logOEMResult({ log: (msg: string, data?: any) => logger.info(msg, data) }, '7ZAP', page, oems);
 
-        if (primary && (primary.confidence || 0) >= 0.9) {
-          queryLog(
-            `Stopping provider chain after ${provider.id} – high confidence (${primary.confidence})`,
-          );
-          break;
-        }
-      } catch (err: any) {
-        queryLog(`Provider ${provider.id} failed: ${err?.message || err}`, { err });
-      }
-    }
-
-    if (!allCandidates.length && fallbackProvider && fallbackProvider.canHandle(parsed)) {
-      try {
-        queryLog('Running fallback provider');
-        const fallbackResults = await fallbackProvider.fetch(parsed, providerCtx);
-        allCandidates.push(...fallbackResults);
-      } catch (err: any) {
-        queryLog(`Fallback provider failed: ${err?.message || err}`, { err });
-      }
-    }
-
-    const { scored, primary } = scoreCandidates(allCandidates, parsed.partGroupPath);
-
-    const output: OemResolverOutput = {
-      parsedInput: {
-        brand: parsed.brand ?? parsed.normalizedBrand,
-        model: parsed.model,
-        year: parsed.year,
-        engineCode: parsed.engineCode,
-        partQuery: parsed.partQuery,
-        vin: parsed.vin,
+            const confidence: SevenZapOutput['meta']['confidence'] = oems.length ? 'high' : 'medium';
+            resultBucket.push({
+              brand: input.brand,
+              vin: input.vin,
+              vehicleResolved,
+              partGroup: input.partGroup,
+              partName: input.partName,
+              diagramUrl,
+              oemNumbers: oems,
+              meta: {
+                source: '7zap',
+                confidence,
+                timestamp: new Date().toISOString(),
+              },
+            });
+          },
+        },
       },
-      candidates: scored.map((s) => ({
-        ...s.candidates[0],
-        oem: s.oem,
-        confidence: s.confidence,
-      })),
-      primary: primary
-        ? {
-            ...primary.candidates[0],
-            oem: primary.oem,
-            confidence: primary.confidence,
-          }
-        : undefined,
-    };
+    ]);
 
-    outputs.push(output);
+    for (const item of resultBucket) {
+      await Actor.pushData(item);
+    }
   }
-
-  await Actor.pushData(outputs);
 });
 
-function buildParsedInput(input: OemResolverInput): ParsedInput {
-  const brandResult = parseBrand(input.rawQuery, input.brand);
-  const partResult = parsePart(input.rawQuery, input.partQuery);
+const resolveBrandConfig = (input: SevenZapInput) => {
+  const norm = normalizeBrand(input.brand);
+  return BRAND_CONFIG[norm] ?? { baseUrl: 'https://7zap.com/en/catalog/cars/' };
+};
 
-  const year = input.year ?? extractYear(input.rawQuery);
-  const engineCode = input.engineCode ?? extractEngineCode(input.rawQuery);
-
-  const remainderParts = [brandResult.remainingText, partResult.remainingText].filter(Boolean).join(' ');
-  const model = (input.model ?? deriveModel(remainderParts, year, engineCode)) || input.model;
-
-  const normalizedBrand = brandResult.normalizedBrand ?? (brandResult.brand ? normalizeBrand(brandResult.brand) : undefined);
-  const normalizedPartQuery = partResult.normalizedPartQuery ?? (input.partQuery ? normalizeText(input.partQuery) : undefined);
-
-  return {
-    rawQuery: input.rawQuery,
-    vin: input.vin,
-    brand: brandResult.brand ?? input.brand,
-    normalizedBrand,
-    model: model || undefined,
-    year: year || undefined,
-    engineCode: engineCode || undefined,
-    partQuery: partResult.partQuery ?? input.partQuery,
-    normalizedPartQuery,
-    partGroupPath: partResult.groupPath,
-    locale: input.locale,
-    countryCode: input.countryCode,
-  };
+async function openBrandCatalog(page: PlaywrightCrawlingContext['page'], url: string, logger: any) {
+  await page.goto(url, { waitUntil: 'domcontentloaded' });
+  logger.info(`Opened brand catalog`, { url: page.url() });
 }
 
-function extractYear(text: string): number | undefined {
-  const match = text.match(/(20\\d{2}|19\\d{2})/);
-  if (!match) return undefined;
-  const year = Number(match[1]);
-  if (year < 1980 || year > 2035) return undefined;
-  return year;
-}
-
-function extractEngineCode(text: string): string | undefined {
-  const tokens = text.split(/\\s+/).map((t) => t.replace(/[^a-zA-Z0-9-]/g, ''));
-  const candidate = tokens.find((t) => /^[A-Z0-9-]{3,8}$/.test(t) && /[0-9]/.test(t) && /[A-Z]/i.test(t));
-  return candidate;
-}
-
-function deriveModel(text: string, year?: number, engineCode?: string): string | undefined {
-  let cleaned = text;
-  if (year) cleaned = cleaned.replace(new RegExp(String(year), 'g'), ' ');
-  if (engineCode) cleaned = cleaned.replace(new RegExp(engineCode, 'ig'), ' ');
-  cleaned = cleaned.replace(/\\s+/g, ' ').trim();
-  if (!cleaned) return undefined;
-  const tokens = cleaned.split(' ');
-  if (!tokens.length) return undefined;
-  return tokens.slice(0, Math.min(tokens.length, 5)).join(' ').toUpperCase();
-}
-
-function pickProviders(parsed: ParsedInput): Provider[] {
-  return providers.filter((provider) => {
-    if (provider.supportedBrands.length) {
-      if (!parsed.normalizedBrand) return false;
-      if (!provider.supportedBrands.includes(parsed.normalizedBrand)) return false;
+async function tryVinSearch(
+  page: PlaywrightCrawlingContext['page'],
+  vin: string,
+  vehicleResolved: VehicleResolved,
+  logger: any,
+) {
+  try {
+    const vinInput = await page.$('input[name*="vin"], input[placeholder*="VIN"], input[id*="vin"]');
+    if (vinInput) {
+      await vinInput.fill(vin);
+      await vinInput.press('Enter');
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      vehicleResolved.extra = { vinDecoded: true };
+      logger.info('VIN search submitted');
+    } else {
+      logger.info('VIN input not found; falling back to manual selection');
     }
-    return provider.canHandle(parsed);
+  } catch (err: any) {
+    logger.warning(`VIN search failed: ${err?.message || err}`);
+  }
+}
+
+async function selectVehicleByModel(
+  page: PlaywrightCrawlingContext['page'],
+  input: SevenZapInput,
+  vehicleResolved: VehicleResolved,
+  logger: any,
+) {
+  try {
+    const cards = await page.$$('a, li');
+    const targets: { handle: any; score: number; text: string }[] = [];
+    const modelNeedle = normalizeText(input.modelName || '');
+    const year = input.year || undefined;
+
+    for (const c of cards) {
+      const text = (await c.textContent())?.trim() || '';
+      const norm = normalizeText(text);
+      if (!norm) continue;
+      let score = 0;
+      if (modelNeedle && norm.includes(modelNeedle)) score += 2;
+      if (year && /\d{4}/.test(text)) score += 1;
+      if (score > 0) targets.push({ handle: c, score, text });
+    }
+
+    targets.sort((a, b) => b.score - a.score);
+    const best = targets[0];
+    if (best) {
+      await best.handle.click();
+      await page.waitForLoadState('domcontentloaded');
+      vehicleResolved.model = best.text;
+      logger.info('Selected model', { text: best.text });
+    } else {
+      logger.info('No model match found; staying on catalog page');
+    }
+  } catch (err: any) {
+    logger.warning(`Model selection failed: ${err?.message || err}`);
+  }
+}
+
+async function openPartGroup(page: PlaywrightCrawlingContext['page'], partGroup: string, logger: any) {
+  const target = normalizeText(partGroup);
+  try {
+    const entries = await page.$$('a, li');
+    const scored: { handle: any; score: number; text: string }[] = [];
+    for (const e of entries) {
+      const text = (await e.textContent())?.trim() || '';
+      const norm = normalizeText(text);
+      if (!norm) continue;
+      let score = 0;
+      if (norm.includes('engine') && target.includes('engine')) score += 2;
+      if (norm.includes('brake') && target.includes('brake')) score += 2;
+      if (norm.includes('suspension') && target.includes('suspension')) score += 2;
+      if (norm.includes(target)) score += 1;
+      if (score > 0) scored.push({ handle: e, score, text });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    const best = scored[0];
+    if (best) {
+      await best.handle.click();
+      await page.waitForLoadState('domcontentloaded');
+      logger.info('Opened part group', { text: best.text });
+    } else {
+      logger.info('No matching part group; staying on page');
+    }
+  } catch (err: any) {
+    logger.warning(`Part group navigation failed: ${err?.message || err}`);
+  }
+}
+
+async function openDiagramForPart(page: PlaywrightCrawlingContext['page'], partName: string, logger: any) {
+  const target = normalizeText(partName);
+  try {
+    const entries = await page.$$('a, li, tr');
+    const scored: { handle: any; score: number; text: string }[] = [];
+    for (const e of entries) {
+      const text = (await e.textContent())?.trim() || '';
+      const norm = normalizeText(text);
+      if (!norm) continue;
+      let score = 0;
+      if (norm.includes(target)) score += 2;
+      if (norm.includes('spark') && target.includes('spark')) score += 1;
+      if (norm.includes('plug') && target.includes('plug')) score += 1;
+      if (score > 0) scored.push({ handle: e, score, text });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    const best = scored[0];
+    if (best) {
+      await best.handle.click();
+      await page.waitForLoadState('domcontentloaded');
+      logger.info('Opened diagram', { text: best.text });
+    } else {
+      logger.info('No diagram match; staying on page');
+    }
+  } catch (err: any) {
+    logger.warning(`Diagram navigation failed: ${err?.message || err}`);
+  }
+}
+
+async function extractOemFromDiagram(
+  page: PlaywrightCrawlingContext['page'],
+  partName: string,
+  logger: any,
+): Promise<{ oems: OemEntry[]; diagramUrl: string }> {
+  const oems: OemEntry[] = [];
+  try {
+    await page.waitForSelector('table', { timeout: 15000 });
+  } catch {
+    logger.info('Diagram table not found within timeout', { url: page.url() });
+  }
+
+  const rows = await page.$$eval('table tr', (trs) => {
+    return trs
+      .map((tr) => {
+        const tds = Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent || '').trim());
+        if (!tds.length) return null;
+        const position = tds[0] || null;
+        const number = tds.find((t) => /[A-Z0-9]{5,}/i.test(t)) || null;
+        const description = tds.find((t, idx) => idx > 0 && t.length > 2) || null;
+        const extra = tds.slice(-1)[0] || null;
+        if (!number) return null;
+        return { position, number, description, extra };
+      })
+      .filter(Boolean) as { position: string | null; number: string; description: string | null; extra: string | null }[];
   });
+
+  for (const row of rows) {
+    const oem = normalizeOem(row.number);
+    if (!oem || !looksLikeOem(oem)) continue;
+    const descMatch = row.description ? normalizeText(row.description).includes(normalizeText(partName)) : false;
+    oems.push({
+      oem,
+      description: row.description,
+      extraInfo: row.extra,
+      position: row.position,
+    });
+    // optional: could score descMatch, but kept simple
+  }
+
+  return { oems, diagramUrl: page.url() };
 }

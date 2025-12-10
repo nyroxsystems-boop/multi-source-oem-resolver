@@ -48,7 +48,7 @@ Actor.main(async () => {
   const crawler = new PlaywrightCrawler({
     maxRequestsPerCrawl: 1000,
     maxConcurrency: 3,
-    navigationTimeoutSecs: 20,
+    navigationTimeoutSecs: 60,
     requestHandlerTimeoutSecs: 60,
     proxyConfiguration: await Actor.createProxyConfiguration({
       proxyUrls: ['http://scraperapi:30cb9073f3273243a3134450b038857a@proxy-server.scraperapi.com:8001'],
@@ -65,9 +65,13 @@ Actor.main(async () => {
       },
     },
     preNavigationHooks: [
-      async (_ctx, goToOptions) => {
+      async (ctx, goToOptions) => {
+        await ctx.page.setExtraHTTPHeaders({
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+        });
         goToOptions.waitUntil = 'domcontentloaded';
-        goToOptions.timeout = 20_000;
+        goToOptions.timeout = 60_000;
       },
     ],
     async requestHandler(crawlingCtx) {

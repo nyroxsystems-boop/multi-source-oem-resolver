@@ -105,7 +105,7 @@ const globalLog = createLogger('OEM-ULTRA-RESOLVER');
           queryLog(
             `After ${provider.id}, candidates: ${scored
               .slice(0, 5)
-              .map((c) => `${c.oem} (${c.provider}, conf=${c.confidence.toFixed(2)})`)
+              .map((c) => `${c.oem} (${c.providers.join(',')}, conf=${c.confidence.toFixed(2)})`)
               .join('; ')}`,
           );
         }
@@ -142,8 +142,18 @@ const globalLog = createLogger('OEM-ULTRA-RESOLVER');
         partQuery: parsed.partQuery,
         vin: parsed.vin,
       },
-      candidates: scored,
-      primary,
+      candidates: scored.map((s) => ({
+        ...s.candidates[0],
+        oem: s.oem,
+        confidence: s.confidence,
+      })),
+      primary: primary
+        ? {
+            ...primary.candidates[0],
+            oem: primary.oem,
+            confidence: primary.confidence,
+          }
+        : undefined,
     };
 
     outputs.push(output);

@@ -59,6 +59,7 @@ export class FallbackSearchProvider implements Provider {
                   provider: this.id,
                   url: page.url(),
                   confidence: baseConfidence,
+                  sourceType: 'SEARCH_FALLBACK',
                   meta: {
                     term,
                   },

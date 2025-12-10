@@ -5,52 +5,66 @@ function clamp(value: number, min = 0, max = 0.99): number {
   return Math.max(min, Math.min(max, value));
 }
 
-const providerWeights: Record<OemCandidate['provider'], number> = {
-  'REALOEM': 0.92,
-  '7ZAP': 0.88,
-  'PARTSOUQ': 0.9,
-  'AUTODOC': 0.72,
-  'FALLBACK': 0.45,
+const providerWeights: Record<string, number> = {
+  REALOEM: 0.95,
+  PARTSOUQ: 0.9,
+  '7ZAP': 0.75,
+  AUTODOC: 0.7,
+  FALLBACK: 0.4,
 };
 
-export function scoreCandidates(candidates: OemCandidate[], expectedGroupPath?: string[]): {
-  scored: OemCandidate[];
-  primary?: OemCandidate;
-} {
-  const grouped = new Map<string, OemCandidate[]>();
+export interface ScoredOem {
+  oem: string;
+  candidates: OemCandidate[];
+  providers: string[];
+  confidence: number;
+}
 
-  for (const candidate of candidates) {
-    const norm = normalizeOem(candidate.oem);
+export function scoreCandidates(
+  candidates: OemCandidate[],
+  expectedGroupPath?: string[],
+): { scored: ScoredOem[]; primary?: ScoredOem } {
+  const map = new Map<string, ScoredOem>();
+
+  for (const c of candidates) {
+    const norm = normalizeOem(c.oem);
     if (!norm) continue;
-    const existing = grouped.get(norm) ?? [];
-    grouped.set(norm, [...existing, { ...candidate, oem: norm }]);
+    let e = map.get(norm);
+    if (!e) {
+      e = { oem: norm, candidates: [], providers: [], confidence: 0 };
+      map.set(norm, e);
+    }
+    e.candidates.push({ ...c, oem: norm });
+    e.providers.push(c.provider);
   }
 
-  const scored: OemCandidate[] = [];
+  for (const e of map.values()) {
+    const uniqueProviders = [...new Set(e.providers)];
+    let score = 0;
 
-  for (const [, groupItems] of grouped.entries()) {
-    const providers = new Set(groupItems.map((c) => c.provider));
-    const base = Math.max(...groupItems.map((c) => c.confidence || providerWeights[c.provider] || 0.4));
-    const confirmationBonus = Math.min((groupItems.length - 1) * 0.05, 0.15);
-    const diversityBonus = providers.size > 1 ? 0.05 : 0;
-
-    let groupBonus = 0;
-    if (expectedGroupPath?.length) {
-      const match = groupItems.some((c) => c.groupPath?.some((p) => expectedGroupPath.includes(p)));
-      groupBonus = match ? 0.03 : 0;
+    for (const p of uniqueProviders) {
+      score += providerWeights[p] ?? 0.5;
     }
 
-    // TODO: Add penalties for engine/model/year mismatches when metadata is available.
+    if (e.candidates.some((c) => c.sourceType === 'EPC')) {
+      score += 0.1;
+    }
 
-    const combinedConfidence = clamp(base + confirmationBonus + diversityBonus + groupBonus);
+    if (uniqueProviders.length > 1) {
+      score += (uniqueProviders.length - 1) * 0.05;
+    }
 
-    const best = groupItems.sort((a, b) => (b.confidence || 0) - (a.confidence || 0))[0];
-    scored.push({
-      ...best,
-      confidence: combinedConfidence,
-    });
+    if (expectedGroupPath && expectedGroupPath.length) {
+      const canonicalExpected = expectedGroupPath.join('>');
+      const hasMatchingPath = e.candidates.some(
+        (c) => (c.groupPath || []).join('>') === canonicalExpected,
+      );
+      if (hasMatchingPath) score += 0.05;
+    }
+
+    e.confidence = clamp(score);
   }
 
-  const sorted = scored.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
-  return { scored: sorted, primary: sorted[0] };
+  const scored = [...map.values()].sort((a, b) => b.confidence - a.confidence);
+  return { scored, primary: scored[0] };
 }

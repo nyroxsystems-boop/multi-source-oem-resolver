@@ -150,6 +150,7 @@ export class SevenZapProvider implements Provider {
                 provider: this.id,
                 url: page.url(),
                 confidence: baseConfidence,
+                sourceType: 'EPC',
                 meta: {
                   brand: normalizedBrand,
                   vin: input.vin,

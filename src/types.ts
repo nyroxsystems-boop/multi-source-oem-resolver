@@ -18,6 +18,9 @@ export interface OemCandidate {
   provider: '7ZAP' | 'PARTSOUQ' | 'REALOEM' | 'AUTODOC' | 'FALLBACK';
   url?: string;
   confidence: number;
+  sourceType?: ProviderSourceType;
+  supersedes?: string[];
+  supersededBy?: string[];
   meta?: Record<string, any>;
 }
 
@@ -48,3 +51,5 @@ export interface ParsedInput {
   locale?: string;
   countryCode?: string;
 }
+
+export type ProviderSourceType = 'EPC' | 'CROSSREF' | 'SHOP_FREEFORM' | 'SEARCH_FALLBACK';

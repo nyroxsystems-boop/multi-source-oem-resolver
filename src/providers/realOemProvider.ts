@@ -94,6 +94,7 @@ export class RealOemProvider implements Provider {
                       provider: this.id,
                       url: page.url(),
                       confidence: baseConfidence,
+                      sourceType: 'EPC',
                       meta: {
                         brand: 'BMW',
                         vin: input.vin,

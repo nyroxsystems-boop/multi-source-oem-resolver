@@ -1,6 +1,7 @@
 import { PlaywrightCrawlingContext } from 'crawlee';
 import { OemCandidate, ParsedInput } from '../types';
 import { normalizeBrand, normalizeOem } from '../utils/normalize';
+import { looksLikeOem } from '../utils/oem';
 import { Provider, ProviderContext } from './base';
 
 export class SevenZapProvider implements Provider {
@@ -151,6 +152,33 @@ export class SevenZapProvider implements Provider {
                   quantity: row.quantity,
                 },
               });
+            }
+
+            if (!results.length) {
+              const bodyText = (await page.textContent('body')) || '';
+              const tokens = bodyText.match(/[A-Z0-9][A-Z0-9\-\s]{6,}/gi) || [];
+              for (const raw of tokens) {
+                if (!looksLikeOem(raw)) continue;
+                const normalizedOem = normalizeOem(raw);
+                if (!normalizedOem || normalizedOem.length < 6) continue;
+                results.push({
+                  oem: normalizedOem,
+                  rawOem: raw.trim(),
+                  description: '7zap fallback text hit',
+                  groupPath: input.partGroupPath,
+                  provider: this.id,
+                  url: page.url(),
+                  confidence: baseConfidence * 0.8,
+                  sourceType: 'EPC',
+                  meta: {
+                    brand: normalizedBrand,
+                    vin: input.vin,
+                    model: input.model,
+                    year: input.year,
+                    fallback: true,
+                  },
+                });
+              }
             }
           },
         },

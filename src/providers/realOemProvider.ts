@@ -49,12 +49,12 @@ export class RealOemProvider implements Provider {
                     ctx.log('RealOEM: Part Number header not found within timeout');
                   }
 
-                  type Row = { description: string; rawOem: string };
-                  const rows = (await page.$$eval('table tr', (trs) => {
-                    return trs
-                      .map((tr) => {
-                        const cells = Array.from(tr.querySelectorAll('td')) as HTMLTableCellElement[];
-                        if (!cells.length) return null;
+            type Row = { description: string; rawOem: string };
+            const rows = (await page.$$eval('table tr', (trs) => {
+              return trs
+                .map((tr) => {
+                  const cells = Array.from(tr.querySelectorAll('td')) as HTMLTableCellElement[];
+                  if (!cells.length) return null;
 
                         const textCells = cells
                           .map((c) => (c.textContent || '').trim())
@@ -71,14 +71,14 @@ export class RealOemProvider implements Provider {
                         };
                       })
                       .filter(Boolean) as Row[];
-                  })) as Row[];
+            })) as Row[];
 
-                  for (const row of rows) {
-                    if (!row.rawOem) continue;
-                    if (!looksLikeOem(row.rawOem)) continue;
+            for (const row of rows) {
+              if (!row.rawOem) continue;
+              if (!looksLikeOem(row.rawOem)) continue;
 
-                    const descLower = row.description.toLowerCase();
-                    const pq = (input.normalizedPartQuery || '').toLowerCase();
+              const descLower = row.description.toLowerCase();
+              const pq = (input.normalizedPartQuery || '').toLowerCase();
                     if (pq && !descLower.includes(pq) && !descLower.includes('spark plug')) {
                       continue;
                     }
@@ -108,6 +108,34 @@ export class RealOemProvider implements Provider {
                   setTimeout(() => reject(new Error('RealOEM inner timeout')), 15_000),
                 ),
               ]);
+
+              if (!results.length) {
+                // Fallback: scrape page text for OEM-like tokens.
+                const bodyText = (await page.textContent('body')) || '';
+                const tokens = bodyText.match(/[A-Z0-9][A-Z0-9\-\s]{6,}/gi) || [];
+                for (const t of tokens) {
+                  if (!looksLikeOem(t)) continue;
+                  const oem = normalizeOem(t);
+                  if (!oem) continue;
+                  results.push({
+                    oem,
+                    rawOem: t.trim(),
+                    description: 'RealOEM fallback text hit',
+                    groupPath: input.partGroupPath,
+                    provider: this.id,
+                    url: page.url(),
+                    confidence: baseConfidence * 0.8,
+                    sourceType: 'EPC',
+                    meta: {
+                      brand: 'BMW',
+                      vin: input.vin,
+                      model: input.model,
+                      year: input.year,
+                      fallback: true,
+                    },
+                  });
+                }
+              }
             },
           },
         },

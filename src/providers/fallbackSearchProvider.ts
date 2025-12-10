@@ -8,9 +8,7 @@ export class FallbackSearchProvider implements Provider {
   supportedBrands: string[] = [];
 
   canHandle(input: ParsedInput): boolean {
-    const hasText = !!input.partQuery || !!input.rawQuery;
-    const hasBrandOrVin = !!input.vin || !!input.normalizedBrand || !!input.brand;
-    return hasText && !hasBrandOrVin;
+    return !!input.partQuery || !!input.rawQuery;
   }
 
   async fetch(input: ParsedInput, ctx: ProviderContext): Promise<OemCandidate[]> {

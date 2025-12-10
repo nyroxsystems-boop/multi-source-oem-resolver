@@ -89,6 +89,34 @@ export class PartsouqProvider implements Provider {
                 },
               });
             }
+
+            if (!results.length) {
+              // Fallback: scan body text for OEM-like tokens.
+              const bodyText = (await page.textContent('body')) || '';
+              const tokens = bodyText.match(/[A-Z0-9][A-Z0-9\-\s]{6,}/gi) || [];
+              for (const raw of tokens) {
+                if (!looksLikeOem(raw)) continue;
+                const normalizedOem = normalizeOem(raw);
+                if (!normalizedOem) continue;
+                results.push({
+                  oem: normalizedOem,
+                  rawOem: raw.trim(),
+                  description: 'Partsouq fallback text hit',
+                  groupPath: input.partGroupPath,
+                  provider: this.id,
+                  url: page.url(),
+                  confidence: baseConfidence * 0.8,
+                  sourceType: 'EPC',
+                  meta: {
+                    brand: normalizedBrand,
+                    vin: input.vin,
+                    model: input.model,
+                    year: input.year,
+                    fallback: true,
+                  },
+                });
+              }
+            }
           },
         },
       },

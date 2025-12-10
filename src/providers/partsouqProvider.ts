@@ -19,29 +19,18 @@ export class PartsouqProvider implements Provider {
     const normalizedBrand = input.normalizedBrand ?? (input.brand ? normalizeBrand(input.brand) : undefined);
     if (!normalizedBrand) return results;
 
-    const baseUrl = 'https://partsouq.com';
-    const vinUrl = 'https://partsouq.com/en/vin';
+    const targetUrl = this.buildTargetUrl(input, normalizedBrand);
     const hasVin = !!input.vin;
     const baseConfidence = hasVin ? 0.94 : 0.87;
 
     await ctx.crawler.run([
       {
-        url: hasVin ? vinUrl : baseUrl,
+        url: targetUrl,
         userData: {
           label: 'PARTSOUQ_START',
           handler: async (playCtx: PlaywrightCrawlingContext) => {
             const { page } = playCtx;
-            ctx.log(`Partsouq: start ${normalizedBrand} ${input.partQuery || ''}`);
-
-            // TODO: Validate Partsouq ToS/robots before scraping at scale.
-
-            if (input.vin) {
-              // TODO: Fill VIN field with input.vin, submit, and wait for vehicle parts catalog page.
-            } else {
-              // TODO: Use brand/model/year/engine selectors to reach diagram list for ${normalizedBrand}.
-            }
-
-            // TODO: Navigate to specific part group or search for input.partQuery within the catalog UI.
+            ctx.log(`Partsouq: start ${normalizedBrand} ${input.partQuery || ''}`, { url: targetUrl });
 
             try {
               await page.waitForSelector('table', { timeout: 15_000 });
@@ -106,5 +95,18 @@ export class PartsouqProvider implements Provider {
     ]);
 
     return results;
+  }
+
+  private buildTargetUrl(input: ParsedInput, normalizedBrand: string): string {
+    if (input.vin) {
+      return `https://partsouq.com/en/vin?v=${encodeURIComponent(input.vin)}`;
+    }
+
+    const terms = [normalizedBrand, input.model, input.partQuery].filter(Boolean).join(' ');
+    if (terms) {
+      return `https://partsouq.com/en/search/all?q=${encodeURIComponent(terms)}`;
+    }
+
+    return 'https://partsouq.com';
   }
 }

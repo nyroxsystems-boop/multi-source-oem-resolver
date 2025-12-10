@@ -16,19 +16,19 @@ export class RealOemProvider implements Provider {
 
   async fetch(input: ParsedInput, ctx: ProviderContext): Promise<OemCandidate[]> {
     const results: OemCandidate[] = [];
-    const baseUrl = 'https://www.realoem.com';
     const hasVin = !!input.vin;
     const baseConfidence = hasVin ? 0.97 : 0.92;
+    const targetUrl = this.buildTargetUrl(input);
 
     try {
       await ctx.crawler.run([
         {
-          url: baseUrl,
+          url: targetUrl,
           userData: {
             label: 'REALOEM_START',
             handler: async (playCtx: PlaywrightCrawlingContext) => {
               const { page } = playCtx;
-              ctx.log(`RealOEM: start ${input.partQuery || ''}`);
+              ctx.log(`RealOEM: start ${input.partQuery || ''}`, { url: targetUrl });
 
               await Promise.race([
                 (async () => {
@@ -117,5 +117,19 @@ export class RealOemProvider implements Provider {
     }
 
     return results;
+  }
+
+  private buildTargetUrl(input: ParsedInput): string {
+    if (input.vin) {
+      const last7 = input.vin.slice(-7);
+      return `https://www.realoem.com/bmw/enUS/partgrp?id=${encodeURIComponent(last7)}`;
+    }
+
+    const terms = [input.model, input.partQuery].filter(Boolean).join(' ');
+    if (terms) {
+      return `https://www.realoem.com/bmw/enUS/search?q=${encodeURIComponent(terms)}`;
+    }
+
+    return 'https://www.realoem.com';
   }
 }

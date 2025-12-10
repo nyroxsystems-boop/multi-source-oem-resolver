@@ -33,28 +33,20 @@ export class SevenZapProvider implements Provider {
     const normalizedBrand = input.normalizedBrand ?? (input.brand ? normalizeBrand(input.brand) : undefined);
     if (!normalizedBrand) return results;
 
-    const baseUrl = 'https://7zap.com';
+    const targetUrl = this.buildTargetUrl(input, normalizedBrand);
     const hasVin = !!input.vin;
     const baseConfidence = hasVin ? 0.93 : 0.84;
 
     await ctx.crawler.run([
       {
-        url: baseUrl,
+        url: targetUrl,
         userData: {
           label: 'SEVENZAP_START',
           handler: async (playCtx: PlaywrightCrawlingContext) => {
             const { page } = playCtx;
-            ctx.log(`7zap: start ${normalizedBrand} ${input.partQuery || ''}`);
+            ctx.log(`7zap: start ${normalizedBrand} ${input.partQuery || ''}`, { url: targetUrl });
 
             // TODO: Ensure 7zap ToS/robots compliance before production scraping.
-
-            if (input.vin) {
-              // TODO: Locate VIN input field, fill input.vin, submit, and wait for vehicle context.
-            } else {
-              // TODO: Navigate brand -> model -> year/engine using UI selectors for ${normalizedBrand}.
-            }
-
-            // TODO: Navigate to part group using input.partGroupPath or search for input.partQuery.
 
             type ExtractedRow = {
               rawOem: string;
@@ -166,5 +158,16 @@ export class SevenZapProvider implements Provider {
     ]);
 
     return results;
+  }
+
+  private buildTargetUrl(input: ParsedInput, normalizedBrand: string): string {
+    if (input.vin) {
+      return `https://7zap.com/search?keyword=${encodeURIComponent(input.vin)}`;
+    }
+    const terms = [normalizedBrand, input.model, input.partQuery].filter(Boolean).join(' ');
+    if (terms) {
+      return `https://7zap.com/search?keyword=${encodeURIComponent(terms)}`;
+    }
+    return 'https://7zap.com';
   }
 }

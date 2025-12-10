@@ -60,6 +60,7 @@ Actor.main(async () => {
     launchContext: {
       launchOptions: {
         headless: true,
+        ignoreHTTPSErrors: true,
         args: ['--disable-dev-shm-usage', '--no-sandbox'],
       },
     },

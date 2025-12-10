@@ -43,13 +43,17 @@ Actor.main(async () => {
   const parsedInput = inputSchema.parse(rawInput);
   const inputs: OemResolverInput[] = 'queries' in parsedInput ? parsedInput.queries : [parsedInput];
 
-const globalLog = createLogger('OEM-ULTRA-RESOLVER');
+  const globalLog = createLogger('OEM-ULTRA-RESOLVER');
 
   const crawler = new PlaywrightCrawler({
     maxRequestsPerCrawl: 1000,
     maxConcurrency: 3,
     navigationTimeoutSecs: 20,
     requestHandlerTimeoutSecs: 60,
+    // Proxy placeholder for ScraperAPI; set APIFY_PROXY_CONFIGURATION or add proxyUrls here if needed.
+    // proxyConfiguration: await Actor.createProxyConfiguration({
+    //   proxyUrls: ['http://scraperapi:YOUR_KEY@proxy-server.scraperapi.com:8001'],
+    // }),
     browserPoolOptions: {
       maxOpenPagesPerBrowser: 3,
       retireBrowserAfterPageCount: 20,

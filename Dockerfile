@@ -11,6 +11,9 @@ RUN chown -R node:node /usr/src/app
 USER node
 RUN npm ci --legacy-peer-deps --unsafe-perm --ignore-scripts
 
+# Ensure Playwright browsers are installed in the image
+RUN npx playwright install --with-deps chromium
+
 # Copy full source with proper ownership
 COPY --chown=node:node . ./
 

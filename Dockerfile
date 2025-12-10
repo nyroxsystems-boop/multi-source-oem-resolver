@@ -4,7 +4,7 @@ FROM apify/actor-node-playwright-chrome:20
 USER root
 WORKDIR /usr/src/app
 
-# Install dependencies without running scripts first (postinstall builds later)
+# Install dependencies (browsers already included in base image)
 COPY package*.json ./
 RUN chown -R node:node /usr/src/app
 

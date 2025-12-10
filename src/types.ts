@@ -34,7 +34,7 @@ export interface SevenZapOutput {
   oemNumbers: OemEntry[];
   meta: {
     source: '7zap';
-    confidence: 'high' | 'medium';
+    confidence: 'very_high' | 'high' | 'medium';
     timestamp: string;
   };
 }

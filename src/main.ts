@@ -17,15 +17,25 @@ type PartInfo = {
   partName: string;
 };
 
+const VehicleWithVin = z.object({
+  vin: z.string().length(17),
+  modelName: z.string().optional().nullable(),
+  productionYear: z.number().optional().nullable(),
+  engineCode: z.string().optional().nullable(),
+});
+
+const VehicleWithoutVin = z.object({
+  vin: z.undefined().optional().nullable(),
+  modelName: z.string(),
+  productionYear: z.number().optional().nullable(),
+  engineCode: z.string().optional().nullable(),
+});
+
+const VehicleSchema = z.union([VehicleWithVin, VehicleWithoutVin]);
+
 const inputSchema = z.object({
   brand: z.string(),
-  vehicle: z
-    .object({
-      vin: z.string().optional().nullable(),
-      modelName: z.string().optional().nullable(),
-      productionYear: z.number().optional().nullable(),
-    })
-    .optional(),
+  vehicle: VehicleSchema,
   part: z.object({
     mainGroupName: z.string(),
     partName: z.string(),
@@ -102,6 +112,8 @@ Actor.main(async () => {
     await sleep(rand(500, 1500));
 
     const { entries, diagramUrl } = await extractOems(page, part.partName);
+    const hasVin = !!vehicle.vin && vehicle.vin.length === 17;
+    const confidence = entries.length === 0 ? 'medium' : hasVin ? 'very_high' : 'high';
 
     await Actor.pushData({
       brand,
@@ -112,7 +124,7 @@ Actor.main(async () => {
       oemNumbers: entries,
       meta: {
         source: '7zap',
-        confidence: entries.length ? 'high' : 'medium',
+        confidence,
         timestamp: new Date().toISOString(),
       },
     });
